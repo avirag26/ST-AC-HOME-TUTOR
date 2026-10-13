@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
@@ -20,6 +20,12 @@ type JourneySummary = {
   stoppedAt: string | null;
 };
 
+type SessionHours = {
+  travelMinutes: number | null;
+  classMinutes: number | null;
+  totalMinutes: number | null;
+};
+
 type AssignedSession = {
   id: string;
   title: string | null;
@@ -36,6 +42,22 @@ type AssignedSession = {
     parentName: string;
   } | null;
   journey: JourneySummary | null;
+  hours?: SessionHours;
+};
+
+type HoursSummary = {
+  from: string | null;
+  to: string | null;
+  completedSessions: number;
+  sessionsWithClassHours: number;
+  totals: {
+    classMinutes: number;
+    travelMinutes: number;
+    totalMinutes: number;
+    classHours: number;
+    travelHours: number;
+    totalHours: number;
+  };
 };
 
 function formatRange(startsAt: string, endsAt: string) {
@@ -60,17 +82,70 @@ function journeyLabel(step: string | undefined) {
   }
 }
 
+function formatDuration(minutes: number | null | undefined) {
+  if (minutes == null) return "—";
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (h <= 0) return `${m}m`;
+  if (m === 0) return `${h}h`;
+  return `${h}h ${m}m`;
+}
+
+function startOfMonthInput() {
+  const d = new Date();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  return `${d.getFullYear()}-${month}-01`;
+}
+
+function todayInput() {
+  const d = new Date();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${month}-${day}`;
+}
+
 export default function DashboardPage() {
   const router = useRouter();
   const [user, setUser] = useState<AuthUser | null>(null);
   const [ready, setReady] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const [sessions, setSessions] = useState<AssignedSession[]>([]);
+  const [hours, setHours] = useState<HoursSummary | null>(null);
   const [sessionTab, setSessionTab] = useState<"upcoming" | "completed">(
     "upcoming",
   );
+  const [fromDate, setFromDate] = useState(startOfMonthInput);
+  const [toDate, setToDate] = useState(todayInput);
+  const [studentId, setStudentId] = useState("");
   const [sessionsLoading, setSessionsLoading] = useState(true);
   const [sessionsError, setSessionsError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setSessionsLoading(true);
+    setSessionsError(null);
+    try {
+      const params: Record<string, string> = {};
+      if (fromDate) params.from = fromDate;
+      if (toDate) params.to = toDate;
+
+      const [sessionsRes, hoursRes] = await Promise.all([
+        api.get<AssignedSession[]>("/sessions/mine", { params }),
+        api.get<HoursSummary>("/sessions/mine/hours", { params }),
+      ]);
+      setSessions(sessionsRes.data);
+      setHours(hoursRes.data);
+    } catch (error) {
+      setSessions([]);
+      setHours(null);
+      setSessionsError(
+        error instanceof ApiError
+          ? error.message
+          : "Could not load your sessions.",
+      );
+    } finally {
+      setSessionsLoading(false);
+    }
+  }, [fromDate, toDate]);
 
   useEffect(() => {
     const token = getAccessToken();
@@ -81,25 +156,60 @@ export default function DashboardPage() {
     }
     setUser(stored);
     setReady(true);
-
-    void (async () => {
-      setSessionsLoading(true);
-      setSessionsError(null);
-      try {
-        const { data } = await api.get<AssignedSession[]>("/sessions/mine");
-        setSessions(data);
-      } catch (error) {
-        setSessions([]);
-        setSessionsError(
-          error instanceof ApiError
-            ? error.message
-            : "Could not load your sessions.",
-        );
-      } finally {
-        setSessionsLoading(false);
-      }
-    })();
   }, [router]);
+
+  useEffect(() => {
+    if (!ready) return;
+    void load();
+  }, [ready, load]);
+
+  const studentOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const session of sessions) {
+      if (session.student) {
+        map.set(
+          session.student.id,
+          `${session.student.fullName}${
+            session.student.className ? ` · ${session.student.className}` : ""
+          }`,
+        );
+      }
+    }
+    return [...map.entries()].map(([id, label]) => ({ id, label }));
+  }, [sessions]);
+
+  const displayHours = useMemo(() => {
+    const source = studentId
+      ? sessions.filter(
+          (s) => s.status === "COMPLETED" && s.student?.id === studentId,
+        )
+      : sessions.filter((s) => s.status === "COMPLETED");
+
+    let classMinutes = 0;
+    let travelMinutes = 0;
+    for (const session of source) {
+      if (session.hours?.classMinutes != null) {
+        classMinutes += session.hours.classMinutes;
+      }
+      if (session.hours?.travelMinutes != null) {
+        travelMinutes += session.hours.travelMinutes;
+      }
+    }
+
+    if (!studentId && hours) {
+      return {
+        completedSessions: hours.completedSessions,
+        classMinutes: hours.totals.classMinutes,
+        travelMinutes: hours.totals.travelMinutes,
+      };
+    }
+
+    return {
+      completedSessions: source.length,
+      classMinutes,
+      travelMinutes,
+    };
+  }, [hours, studentId, sessions]);
 
   async function handleSignOut() {
     setSigningOut(true);
@@ -121,8 +231,11 @@ export default function DashboardPage() {
     );
   }
 
-  const upcoming = sessions.filter((s) => s.status === "SCHEDULED");
-  const completed = sessions.filter((s) => s.status === "COMPLETED");
+  const filteredSessions = studentId
+    ? sessions.filter((s) => s.student?.id === studentId)
+    : sessions;
+  const upcoming = filteredSessions.filter((s) => s.status === "SCHEDULED");
+  const completed = filteredSessions.filter((s) => s.status === "COMPLETED");
   const visible = sessionTab === "upcoming" ? upcoming : completed;
 
   return (
@@ -151,21 +264,73 @@ export default function DashboardPage() {
             Welcome, {user.fullName}
           </h2>
           <p className="mt-2 text-sm leading-relaxed text-text-secondary">
-            Open a class journey to leave home, reach the student, start, then
-            stop when the class ends.
+            Track journeys, fill reports, and review class hours for a date
+            range.
           </p>
-          <dl className="mt-6 grid gap-3 text-sm sm:grid-cols-2">
+        </section>
+
+        <section className="rounded-2xl border border-border bg-surface p-5 shadow-[var(--shadow-card)] sm:p-8">
+          <h3 className="text-base font-semibold text-text">Hours & filters</h3>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <label className="block space-y-1.5">
+              <span className="text-sm font-medium text-text">From</span>
+              <input
+                type="date"
+                value={fromDate}
+                onChange={(e) => setFromDate(e.target.value)}
+                className="min-h-11 w-full rounded-xl border border-border bg-surface px-3.5 py-2.5 text-base text-text shadow-sm focus:border-primary"
+              />
+            </label>
+            <label className="block space-y-1.5">
+              <span className="text-sm font-medium text-text">To</span>
+              <input
+                type="date"
+                value={toDate}
+                onChange={(e) => setToDate(e.target.value)}
+                className="min-h-11 w-full rounded-xl border border-border bg-surface px-3.5 py-2.5 text-base text-text shadow-sm focus:border-primary"
+              />
+            </label>
+            <label className="block space-y-1.5 sm:col-span-2">
+              <span className="text-sm font-medium text-text">Student</span>
+              <select
+                value={studentId}
+                onChange={(e) => setStudentId(e.target.value)}
+                className="min-h-11 w-full rounded-xl border border-border bg-surface px-3.5 py-2.5 text-base text-text shadow-sm focus:border-primary"
+              >
+                <option value="">All students</option>
+                {studentOptions.map((student) => (
+                  <option key={student.id} value={student.id}>
+                    {student.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <div className="mt-4 grid gap-3 sm:grid-cols-3">
             <div className="rounded-xl border border-border bg-surface-muted px-4 py-3">
-              <dt className="text-text-secondary">Phone</dt>
-              <dd className="mt-1 font-medium text-text">{user.phone}</dd>
+              <p className="text-xs text-text-secondary">Class hours</p>
+              <p className="mt-1 text-lg font-semibold text-text">
+                {formatDuration(displayHours.classMinutes)}
+              </p>
             </div>
             <div className="rounded-xl border border-border bg-surface-muted px-4 py-3">
-              <dt className="text-text-secondary">Email</dt>
-              <dd className="mt-1 break-all font-medium text-text">
-                {user.email}
-              </dd>
+              <p className="text-xs text-text-secondary">Travel time</p>
+              <p className="mt-1 text-lg font-semibold text-text">
+                {formatDuration(displayHours.travelMinutes)}
+              </p>
             </div>
-          </dl>
+            <div className="rounded-xl border border-border bg-surface-muted px-4 py-3">
+              <p className="text-xs text-text-secondary">Completed classes</p>
+              <p className="mt-1 text-lg font-semibold text-text">
+                {displayHours.completedSessions}
+              </p>
+            </div>
+          </div>
+          <p className="mt-3 text-xs text-text-secondary">
+            Class hours = start → stop. Travel = leave home → reach. Based on
+            completed journeys in this date range.
+          </p>
         </section>
 
         <section className="rounded-2xl border border-border bg-surface p-5 shadow-[var(--shadow-card)] sm:p-8">
@@ -217,8 +382,8 @@ export default function DashboardPage() {
           ) : visible.length === 0 ? (
             <p className="mt-3 text-sm text-text-secondary">
               {sessionTab === "upcoming"
-                ? "No upcoming classes. The CEO will schedule online sessions for you."
-                : "No completed classes yet. Sessions move here after you stop the journey."}
+                ? "No upcoming classes in this filter. Try widening the dates."
+                : "No completed classes in this filter yet."}
             </p>
           ) : (
             <div className="mt-4 space-y-3">
@@ -261,19 +426,31 @@ export default function DashboardPage() {
                       {" · "}Parent: {session.student.parentName}
                     </p>
                   ) : null}
-                  {session.notes ? (
+                  {session.status === "COMPLETED" && session.hours ? (
                     <p className="mt-1 text-sm text-text-secondary">
-                      Note: {session.notes}
+                      Class {formatDuration(session.hours.classMinutes)}
+                      {" · "}Travel{" "}
+                      {formatDuration(session.hours.travelMinutes)}
                     </p>
                   ) : null}
-                  <Link
-                    href={`/sessions/${session.id}/journey`}
-                    className="mt-3 inline-flex min-h-10 items-center rounded-md bg-primary px-3 text-sm font-medium text-white hover:bg-primary-dark"
-                  >
-                    {session.status === "COMPLETED"
-                      ? "View journey"
-                      : "Open journey"}
-                  </Link>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Link
+                      href={`/sessions/${session.id}/journey`}
+                      className="inline-flex min-h-10 items-center rounded-md bg-primary px-3 text-sm font-medium text-white hover:bg-primary-dark"
+                    >
+                      {session.status === "COMPLETED"
+                        ? "View journey"
+                        : "Open journey"}
+                    </Link>
+                    {session.status === "COMPLETED" ? (
+                      <Link
+                        href={`/sessions/${session.id}/report`}
+                        className="inline-flex min-h-10 items-center rounded-md border border-border bg-surface px-3 text-sm font-medium text-text hover:bg-surface-muted"
+                      >
+                        Class report
+                      </Link>
+                    ) : null}
+                  </div>
                 </article>
               ))}
             </div>

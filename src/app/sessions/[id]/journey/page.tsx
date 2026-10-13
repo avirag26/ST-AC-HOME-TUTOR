@@ -385,15 +385,23 @@ export default function JourneyPage() {
               <section className="rounded-2xl border border-success/30 bg-emerald-50 p-5">
                 <p className="font-semibold text-success">Journey complete</p>
                 <p className="mt-1 text-sm text-text-secondary">
-                  This class is stopped and marked Completed. Class report /
-                  PDF comes in a later step.
+                  This class is stopped and marked Completed. Fill the class
+                  report now or later, then download the PDF.
                 </p>
-                <Link
-                  href="/dashboard"
-                  className="mt-4 inline-flex min-h-11 items-center rounded-md bg-primary px-4 text-sm font-medium text-white hover:bg-primary-dark"
-                >
-                  Back to dashboard
-                </Link>
+                <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                  <Link
+                    href={`/sessions/${sessionId}/report`}
+                    className="inline-flex min-h-11 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-white hover:bg-primary-dark"
+                  >
+                    Class report / PDF
+                  </Link>
+                  <Link
+                    href="/dashboard"
+                    className="inline-flex min-h-11 items-center justify-center rounded-md border border-border bg-surface px-4 text-sm font-medium text-text hover:bg-surface-muted"
+                  >
+                    Back to dashboard
+                  </Link>
+                </div>
               </section>
             )}
           </>
