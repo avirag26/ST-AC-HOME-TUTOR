@@ -14,7 +14,7 @@ const tabs: { id: AuthTab; label: string }[] = [
 const highlights = [
   "Track your home visits and class hours",
   "Share class reports and notes with parents",
-  "Manage exams and quizzes in one place",
+  "Review assigned sessions and teaching hours",
 ];
 
 export function AuthPanel() {

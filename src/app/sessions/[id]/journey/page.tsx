@@ -120,6 +120,7 @@ export default function JourneyPage() {
   const [success, setSuccess] = useState<string | null>(null);
   const [data, setData] = useState<JourneyResponse | null>(null);
   const [liveSharing, setLiveSharing] = useState(false);
+  const journeyStep = data?.journey.step;
 
   const load = useCallback(async () => {
     if (!sessionId) return;
@@ -158,12 +159,12 @@ export default function JourneyPage() {
   }, [ready, load]);
 
   useEffect(() => {
-    if (!ready || !sessionId || !data) {
+    if (!ready || !sessionId || !journeyStep) {
       setLiveSharing(false);
       return;
     }
 
-    const step = data.journey.step;
+    const step = journeyStep;
     const active =
       step === "LEFT_HOME" || step === "REACHED" || step === "CLASS_STARTED";
     if (!active) {
@@ -203,7 +204,7 @@ export default function JourneyPage() {
       window.clearInterval(timer);
       setLiveSharing(false);
     };
-  }, [ready, sessionId, data?.journey.step]);
+  }, [ready, sessionId, journeyStep]);
 
   async function handleNext() {
     if (!data?.journey.nextAction) return;

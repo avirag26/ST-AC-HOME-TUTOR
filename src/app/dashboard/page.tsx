@@ -240,8 +240,8 @@ export default function DashboardPage() {
 
   return (
     <main className="min-h-dvh bg-surface-muted">
-      <header className="border-b border-border bg-surface">
-        <div className="mx-auto flex max-w-3xl items-center justify-between gap-4 px-4 py-4">
+      <header className="sticky top-0 z-20 border-b border-border bg-surface/95 backdrop-blur">
+        <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
           <div>
             <p className="text-sm font-medium text-primary">
               Straight Line Academy
@@ -258,7 +258,10 @@ export default function DashboardPage() {
         </div>
       </header>
 
-      <div className="mx-auto max-w-3xl space-y-4 px-4 py-8">
+      <div className="mx-auto max-w-5xl space-y-6 px-4 py-8 sm:px-6 lg:py-10">
+        <a href="/quizzes" className="flex min-h-14 items-center justify-between rounded-2xl border border-blue-100 bg-white px-5 py-4 font-semibold text-primary">Quizzes <span aria-hidden>→</span></a>
+        <a href="/finance" className="flex min-h-14 items-center justify-between rounded-2xl border border-blue-100 bg-white px-5 py-4 font-semibold text-primary">Salary history <span aria-hidden>→</span></a>
+        <a href="/exams" className="flex min-h-14 items-center justify-between rounded-2xl border border-blue-100 bg-white px-5 py-4 font-semibold text-primary shadow-sm">Exams & results <span aria-hidden>→</span></a>
         <section className="rounded-2xl border border-border bg-surface p-5 shadow-[var(--shadow-card)] sm:p-8">
           <h2 className="text-xl font-semibold text-text">
             Welcome, {user.fullName}
